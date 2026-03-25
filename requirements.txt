@@ -1,9 +1,8 @@
 clickhouse-connect>=0.7.0
 sentence-transformers>=2.2.0
 lightgbm>=4.0.0
-onnxmltools>=1.12.0
-skl2onnx>=1.16.0
 onnx>=1.14.0
 numpy>=1.24.0
 pandas>=2.0.0
 scikit-learn>=1.3.0
+catboost>=1.2

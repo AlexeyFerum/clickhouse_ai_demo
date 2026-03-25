@@ -26,15 +26,11 @@ LIMIT 10;
 SELECT
     pickup_datetime,
     fare_amount,
-    round(tip_amount, 2) AS tip_amount,
-
-    round(
-        avg(tip_amount) OVER (
-            ORDER BY toUInt32(pickup_datetime)
-            RANGE BETWEEN 10800 PRECEDING AND CURRENT ROW
-        ),
-        3
-    ) AS rolling_avg_tip_3h
+    round(tip_amount, 2)                         AS tip_amount,
+    round(avg(tip_amount) OVER (
+        ORDER BY pickup_datetime
+        RANGE BETWEEN INTERVAL 3 HOUR PRECEDING AND CURRENT ROW
+    ), 3)                                        AS rolling_avg_tip_3h
 FROM nyc_taxi
 WHERE pickup_datetime BETWEEN '2015-01-15' AND '2015-01-15 06:00:00'
 ORDER BY pickup_datetime
@@ -70,26 +66,20 @@ LIMIT 24;
 
 -- ── Шаг 5: Итоговый feature-запрос для обучения модели ────────
 SELECT
-    toHour(pickup_datetime)                                      AS hour_of_day,
-    toDayOfWeek(pickup_datetime)                                 AS day_of_week,
-    if(toDayOfWeek(pickup_datetime) IN (6,7), 1, 0)              AS is_weekend,
-    round(trip_distance, 2)                                      AS trip_distance,
+    toHour(pickup_datetime)                                         AS hour_of_day,
+    toDayOfWeek(pickup_datetime)                                    AS day_of_week,
+    if(toDayOfWeek(pickup_datetime) IN (6,7), 1, 0)                AS is_weekend,
+    round(trip_distance, 2)                                         AS trip_distance,
     passenger_count,
-    round(fare_amount, 2)                                        AS fare_amount,
-    round(
-        avg(tip_amount) OVER (
-            ORDER BY toUInt32(pickup_datetime)
-            RANGE BETWEEN 10800 PRECEDING AND CURRENT ROW
-        ),
-        3
-    )                                                            AS rolling_avg_tip_3h,
-    round(
-        lagInFrame(trip_distance, 1, 0) OVER (
-            ORDER BY pickup_datetime
-        ),
-        2
-    )                                                            AS prev_trip_distance,
-    if(tip_amount / nullIf(fare_amount, 0) > 0.2, 1, 0)          AS target
+    round(fare_amount, 2)                                           AS fare_amount,
+    round(avg(tip_amount) OVER (
+        ORDER BY pickup_datetime
+        RANGE BETWEEN INTERVAL 3 HOUR PRECEDING AND CURRENT ROW
+    ), 3)                                                           AS rolling_avg_tip_3h,
+    round(lagInFrame(trip_distance, 1, 0) OVER (
+        ORDER BY pickup_datetime
+    ), 2)                                                           AS prev_trip_distance,
+    if(tip_amount / nullIf(fare_amount, 0) > 0.2, 1, 0)            AS target
 FROM nyc_taxi
 WHERE pickup_datetime BETWEEN '2015-01-01' AND '2015-03-01'
   AND fare_amount > 0

@@ -1,19 +1,18 @@
 """
 04_train_export_onnx.py
-Блок 3: Обучение LightGBM и экспорт в ONNX для ClickHouse
+Блок 3: Обучение CatBoost и деплой модели в ClickHouse
 - Читает фичи из ClickHouse
 - Обучает бинарный классификатор (tip > 20%)
-- Экспортирует в ONNX
-- Кладёт модель в директорию ClickHouse
+- Сохраняет модель в формате .cbm
+- Копирует в /var/lib/clickhouse/models/ и регистрирует XML-конфиг
 
 Запуск: python scripts/04_train_export_onnx.py
 """
 
 import clickhouse_connect
 import numpy as np
-import pandas as pd
 import os
-import json
+import subprocess
 from sklearn.model_selection import train_test_split
 from sklearn.metrics import accuracy_score, roc_auc_score
 
@@ -24,18 +23,18 @@ client = clickhouse_connect.get_client(
 )
 print("✓ Подключение к ClickHouse")
 
-# ── Выгрузка фич из ClickHouse ────────────────────────────────
+# ── Выгрузка фич из ClickHouse ─────────────────────────────────
 print("\nЗагружаем обучающие данные из ClickHouse...")
 
 df = client.query_df("""
     SELECT
-        toHour(pickup_datetime)                                     AS hour_of_day,
-        toDayOfWeek(pickup_datetime)                                AS day_of_week,
-        if(toDayOfWeek(pickup_datetime) IN (6,7), 1, 0)            AS is_weekend,
-        round(trip_distance, 2)                                     AS trip_distance,
-        toFloat32(passenger_count)                                  AS passenger_count,
-        round(fare_amount, 2)                                       AS fare_amount,
-        if(tip_amount / nullIf(fare_amount, 0) > 0.2, 1, 0)        AS target
+        toHour(pickup_datetime)                              AS hour_of_day,
+        toDayOfWeek(pickup_datetime)                         AS day_of_week,
+        if(toDayOfWeek(pickup_datetime) IN (6,7), 1, 0)     AS is_weekend,
+        round(trip_distance, 2)                              AS trip_distance,
+        toFloat32(passenger_count)                           AS passenger_count,
+        round(fare_amount, 2)                                AS fare_amount,
+        if(tip_amount / nullIf(fare_amount, 0) > 0.2, 1, 0) AS target
     FROM nyc_taxi
     WHERE pickup_datetime BETWEEN '2015-01-01' AND '2015-05-01'
       AND fare_amount > 0
@@ -43,10 +42,10 @@ df = client.query_df("""
 """)
 
 print(f"✓ Загружено {len(df):,} строк")
-print(f"  Целевая переменная: {df['target'].mean():.1%} положительных (tip > 20%)")
+print(f"  Доля положительных (tip > 20%): {df['target'].mean():.1%}")
 
-FEATURES = ['hour_of_day','day_of_week','is_weekend',
-            'trip_distance','passenger_count','fare_amount']
+FEATURES = ['hour_of_day', 'day_of_week', 'is_weekend',
+            'trip_distance', 'passenger_count', 'fare_amount']
 
 X = df[FEATURES].values.astype(np.float32)
 y = df['target'].values.astype(np.int32)
@@ -56,116 +55,107 @@ X_train, X_test, y_train, y_test = train_test_split(
 )
 print(f"  Train: {len(X_train):,}  |  Test: {len(X_test):,}")
 
-# ── Обучение LightGBM ─────────────────────────────────────────
-print("\nОбучение LightGBM...")
-try:
-    import lightgbm as lgb
+# ── Обучение CatBoost ──────────────────────────────────────────
+print("\nОбучение CatBoost...")
+from catboost import CatBoostClassifier
 
-    model = lgb.LGBMClassifier(
-        n_estimators=200,
-        max_depth=6,
-        learning_rate=0.05,
-        num_leaves=31,
-        random_state=42,
-        verbose=-1
-    )
-    model.fit(X_train, y_train,
-              eval_set=[(X_test, y_test)],
-              callbacks=[lgb.early_stopping(20, verbose=False),
-                         lgb.log_evaluation(50)])
+model = CatBoostClassifier(
+    iterations=200,
+    depth=6,
+    learning_rate=0.05,
+    loss_function='Logloss',
+    eval_metric='AUC',
+    random_seed=42,
+    verbose=50
+)
+model.fit(
+    X_train, y_train,
+    eval_set=(X_test, y_test),
+    early_stopping_rounds=20
+)
 
-    y_pred  = model.predict(X_test)
-    y_proba = model.predict_proba(X_test)[:, 1]
-    print(f"✓ Обучено за {model.best_iteration_} итераций")
-    print(f"  Accuracy: {accuracy_score(y_test, y_pred):.4f}")
-    print(f"  ROC-AUC:  {roc_auc_score(y_test, y_proba):.4f}")
+y_pred  = model.predict(X_test)
+y_proba = model.predict_proba(X_test)[:, 1]
+print(f"✓ Обучено")
+print(f"  Accuracy: {accuracy_score(y_test, y_pred):.4f}")
+print(f"  ROC-AUC:  {roc_auc_score(y_test, y_proba):.4f}")
 
-    # ── Экспорт в ONNX ─────────────────────────────────────────
-    print("\nЭкспорт в ONNX...")
-    try:
-        from onnxmltools import convert_lightgbm
-        from onnxmltools.utils import save_model
-        from onnxmltools.convert.common.data_types import FloatTensorType
-
-        onnx_model = convert_lightgbm(
-            model.booster_,
-            initial_types=[('features', FloatTensorType([None, len(FEATURES)]))]
-        )
-
-        os.makedirs('models', exist_ok=True)
-        onnx_path = 'models/tip_classifier.onnx'
-        save_model(onnx_model, onnx_path)
-        size_kb = os.path.getsize(onnx_path) / 1024
-        print(f"✓ ONNX модель сохранена: {onnx_path} ({size_kb:.1f} KB)")
-
-        # Путь для ClickHouse
-        ch_models_dir = '/var/lib/clickhouse/models'
-        if os.path.isdir(ch_models_dir):
-            import shutil
-            shutil.copy(onnx_path, os.path.join(ch_models_dir, 'tip_classifier.onnx'))
-            print(f"✓ Скопировано в {ch_models_dir}")
-        else:
-            print(f"⚠ Директория {ch_models_dir} не найдена.")
-            print(f"  Скопируйте вручную:")
-            print(f"  docker cp {onnx_path} clickhouse:/var/lib/clickhouse/models/")
-
-    except ImportError:
-        print("⚠ onnxmltools или skl2onnx не установлены.")
-        print("  pip install onnxmltools skl2onnx")
-        print("  Генерируем синтетический ONNX-файл для демо...")
-        _generate_dummy_onnx(FEATURES)
-
-except ImportError:
-    print("⚠ LightGBM не установлен. pip install lightgbm")
-    print("  Генерируем синтетическую модель для демо инференса...")
-    _generate_dummy_onnx(FEATURES)
-
-
-def _generate_dummy_onnx(features):
-    """Создаёт минимальный валидный ONNX для демо без LightGBM."""
-    try:
-        import onnx
-        from onnx import helper, TensorProto
-        import numpy as np
-
-        # Линейная модель: sigmoid(w·x + b)
-        n = len(features)
-        np.random.seed(42)
-        W = np.random.randn(1, n).astype(np.float32) * 0.1
-        b = np.array([0.0], dtype=np.float32)
-
-        X_in  = helper.make_tensor_value_info('features', TensorProto.FLOAT, [None, n])
-        out   = helper.make_tensor_value_info('probabilities', TensorProto.FLOAT, [None, 2])
-
-        W_init = helper.make_tensor('W', TensorProto.FLOAT, W.shape, W.flatten().tolist())
-        b_init = helper.make_tensor('b', TensorProto.FLOAT, b.shape, b.tolist())
-
-        gemm  = helper.make_node('Gemm', ['features','W','b'], ['logit'], transB=1)
-        sig   = helper.make_node('Sigmoid', ['logit'], ['prob1'])
-        graph = helper.make_graph([gemm, sig], 'tip_model', [X_in], [out], [W_init, b_init])
-        model = helper.make_model(graph)
-
-        os.makedirs('models', exist_ok=True)
-        onnx.save(model, 'models/tip_classifier.onnx')
-        print("✓ Синтетическая ONNX-модель сохранена в models/tip_classifier.onnx")
-    except ImportError:
-        print("⚠ Установите onnx: pip install onnx")
-
-
-# ── Конфиг ClickHouse для модели ──────────────────────────────
-config_xml = """<models>
-  <model>
-    <type>catboost</type>
-    <name>tip_classifier</name>
-    <path>/var/lib/clickhouse/models/tip_classifier.onnx</path>
-  </model>
-</models>"""
-
+# ── Сохранение модели (.cbm) ───────────────────────────────────
 os.makedirs('models', exist_ok=True)
-with open('models/tip_classifier.xml', 'w') as f:
-    f.write(config_xml)
-print(f"\n✓ Конфиг ClickHouse: models/tip_classifier.xml")
-print("  Скопируйте в /etc/clickhouse-server/models/tip_classifier.xml")
-print("  docker cp models/tip_classifier.xml clickhouse:/etc/clickhouse-server/models/")
+model_path = 'models/tip_classifier.cbm'
+model.save_model(model_path)
+size_kb = os.path.getsize(model_path) / 1024
+print(f"\n✓ Модель сохранена: {model_path} ({size_kb:.1f} KB)")
 
+# ── Деплой в ClickHouse ────────────────────────────────────────
+print("\nДеплой модели в ClickHouse...")
+
+CH_MODELS_DIR = '/var/lib/clickhouse/models'
+CH_CONFIG_DIR = '/etc/clickhouse-server/config.d'
+
+# Создаём директорию если нет
+if not os.path.isdir(CH_MODELS_DIR):
+    subprocess.run(['sudo', 'mkdir', '-p', CH_MODELS_DIR], check=True)
+
+# Копируем .cbm
+r = subprocess.run(
+    ['sudo', 'cp', model_path, f'{CH_MODELS_DIR}/tip_classifier.cbm'],
+    capture_output=True, text=True
+)
+if r.returncode == 0:
+    print(f"✓ Модель скопирована → {CH_MODELS_DIR}/tip_classifier.cbm")
+else:
+    print(f"⚠ Ошибка: {r.stderr.strip()}")
+    print(f"  Выполните вручную: sudo cp {model_path} {CH_MODELS_DIR}/")
+
+subprocess.run(
+    ['sudo', 'chown', 'clickhouse:clickhouse',
+     f'{CH_MODELS_DIR}/tip_classifier.cbm'],
+    capture_output=True
+)
+
+# ── XML-конфиг для регистрации модели ─────────────────────────
+# catboostEvaluate() требует регистрации модели через конфиг
+config_xml = """<clickhouse>
+    <models_config>/etc/clickhouse-server/models/*.xml</models_config>
+</clickhouse>
+"""
+models_xml = """<models>
+    <model>
+        <type>catboost</type>
+        <name>tip_classifier</name>
+        <path>/var/lib/clickhouse/models/tip_classifier.cbm</path>
+        <lifetime>0</lifetime>
+    </model>
+</models>
+"""
+
+# Пишем конфиги во временные файлы, потом sudo cp
+with open('/tmp/catboost_config.xml', 'w') as f:
+    f.write(config_xml)
+with open('/tmp/tip_classifier.xml', 'w') as f:
+    f.write(models_xml)
+
+subprocess.run(['sudo', 'mkdir', '-p', '/etc/clickhouse-server/models'], check=True)
+subprocess.run(['sudo', 'cp', '/tmp/catboost_config.xml',
+                f'{CH_CONFIG_DIR}/catboost_config.xml'], check=True)
+subprocess.run(['sudo', 'cp', '/tmp/tip_classifier.xml',
+                '/etc/clickhouse-server/models/tip_classifier.xml'], check=True)
+print("✓ XML-конфиги записаны")
+
+# Перезапуск сервера
+print("Перезапуск clickhouse-server...")
+r = subprocess.run(
+    ['sudo', 'systemctl', 'restart', 'clickhouse-server'],
+    capture_output=True, text=True
+)
+if r.returncode == 0:
+    print("✓ Сервер перезапущен")
+else:
+    print(f"⚠ Ошибка перезапуска: {r.stderr.strip()}")
+    print("  Выполните вручную: sudo systemctl restart clickhouse-server")
+
+print("\n── Итог ──────────────────────────────────────────────────")
+print(f"Модель    : {CH_MODELS_DIR}/tip_classifier.cbm")
+print("SQL-функция: catboostEvaluate('/var/lib/clickhouse/models/tip_classifier.cbm', f1, f2, ...)")
 print("\n✓ Готово! Далее: clickhouse-client < scripts/05_inference.sql")
