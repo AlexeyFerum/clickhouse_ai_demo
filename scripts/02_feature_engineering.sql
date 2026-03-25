@@ -28,8 +28,8 @@ SELECT
     fare_amount,
     round(tip_amount, 2)                         AS tip_amount,
     round(avg(tip_amount) OVER (
-        ORDER BY pickup_datetime
-        RANGE BETWEEN INTERVAL 3 HOUR PRECEDING AND CURRENT ROW
+        ORDER BY toUInt32(pickup_datetime)
+        RANGE BETWEEN 10800 PRECEDING AND CURRENT ROW
     ), 3)                                        AS rolling_avg_tip_3h
 FROM nyc_taxi
 WHERE pickup_datetime BETWEEN '2015-01-15' AND '2015-01-15 06:00:00'
@@ -73,8 +73,8 @@ SELECT
     passenger_count,
     round(fare_amount, 2)                                           AS fare_amount,
     round(avg(tip_amount) OVER (
-        ORDER BY pickup_datetime
-        RANGE BETWEEN INTERVAL 3 HOUR PRECEDING AND CURRENT ROW
+        ORDER BY toUInt32(pickup_datetime)
+        RANGE BETWEEN 10800 PRECEDING AND CURRENT ROW
     ), 3)                                                           AS rolling_avg_tip_3h,
     round(lagInFrame(trip_distance, 1, 0) OVER (
         ORDER BY pickup_datetime

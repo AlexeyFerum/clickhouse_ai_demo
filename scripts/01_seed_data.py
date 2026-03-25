@@ -47,12 +47,12 @@ ZONES = [
     (90, "Flushing",              "Queens",    "Mixed",        -73.833, 40.767),
     (107,"Greenwich Village",     "Manhattan", "Mixed",        -74.002, 40.733),
     (113,"Hamilton Heights",      "Manhattan", "Residential",  -73.949, 40.822),
-    (114","Harlem",               "Manhattan", "Residential",  -73.943, 40.812),
+    (114,"Harlem",               "Manhattan", "Residential",  -73.943, 40.812),
     (116,"Hell's Kitchen North",  "Manhattan", "Mixed",        -73.993, 40.768),
     (120,"Highbridge",            "Bronx",     "Residential",  -73.925, 40.837),
     (125,"Howard Beach",          "Queens",    "Residential",  -73.843, 40.659),
     (132,"JFK Airport",           "Queens",    "Airport",      -73.778, 40.641),
-    (138","LaGuardia Airport",    "Queens",    "Airport",      -73.873, 40.776),
+    (138,"LaGuardia Airport",    "Queens",    "Airport",      -73.873, 40.776),
     (140,"Lenox Hill East",       "Manhattan", "Residential",  -73.959, 40.768),
     (141,"Lenox Hill West",       "Manhattan", "Residential",  -73.966, 40.770),
     (142,"Lincoln Square East",   "Manhattan", "Mixed",        -73.986, 40.773),
@@ -61,18 +61,18 @@ ZONES = [
     (148,"Lower East Side",       "Manhattan", "Residential",  -73.985, 40.715),
     (151,"Manhattan Valley",      "Manhattan", "Residential",  -73.966, 40.797),
     (152,"Manhattanville",        "Manhattan", "Residential",  -73.955, 40.819),
-    (158","Meatpacking/West",     "Manhattan", "Mixed",        -74.008, 40.740),
+    (158,"Meatpacking/West",     "Manhattan", "Mixed",        -74.008, 40.740),
     (161,"Midtown Center",        "Manhattan", "Business",     -73.984, 40.757),
     (162,"Midtown East",          "Manhattan", "Business",     -73.974, 40.755),
     (163,"Midtown North",         "Manhattan", "Business",     -73.983, 40.763),
     (164,"Midtown South",         "Manhattan", "Business",     -73.988, 40.750),
     (170,"Murray Hill",           "Manhattan", "Mixed",        -73.978, 40.748),
-    (186","Penn Station/Madison", "Manhattan", "Transit",      -73.994, 40.751),
+    (186,"Penn Station/Madison", "Manhattan", "Transit",      -73.994, 40.751),
     (194,"Prospect-Lefferts",     "Brooklyn",  "Residential",  -73.957, 40.652),
     (202,"Ridgewood",             "Queens",    "Residential",  -73.904, 40.704),
-    (209","SoHo",                 "Manhattan", "Mixed",        -74.003, 40.723),
+    (209,"SoHo",                 "Manhattan", "Mixed",        -74.003, 40.723),
     (261,"World Trade Center",    "Manhattan", "Business",     -74.011, 40.712),
-    (263","Yorkville East",       "Manhattan", "Residential",  -73.950, 40.774),
+    (263,"Yorkville East",       "Manhattan", "Residential",  -73.950, 40.774),
 ]
 
 zone_ids   = [z[0] for z in ZONES]
@@ -182,7 +182,7 @@ print(f"\n✓ NYC Taxi: {inserted:,} поездок вставлено")
 print("\nВставка зон NYC (без эмбеддингов — эмбеддинги генерирует 03_vector_search.py)...")
 
 zone_rows = [
-    (z[0], z[1], z[2], z[3], [])   # embedding пустой — заполнится в следующем скрипте
+    (z[0], z[1], z[2], z[3], [0.0] * 384)   # embedding пустой — заполнится в следующем скрипте
     for z in ZONES
 ]
 client.insert('taxi_zones', zone_rows,

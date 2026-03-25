@@ -117,6 +117,7 @@ subprocess.run(
 # ── XML-конфиг для регистрации модели ─────────────────────────
 # catboostEvaluate() требует регистрации модели через конфиг
 config_xml = """<clickhouse>
+    <catboost_lib_path>/var/lib/clickhouse/libcatboostmodel.so</catboost_lib_path>
     <models_config>/etc/clickhouse-server/models/*.xml</models_config>
 </clickhouse>
 """

@@ -69,7 +69,7 @@ sudo chown clickhouse:clickhouse /var/lib/clickhouse/libcatboostmodel.so
 
 ### ⚠ Конфигурация ClickHouse для CatBoost
 
-Создайте файл `/etc/clickhouse-server/config.d/catboost_config.xml`:
+Создайте файл `sudo vi /etc/clickhouse-server/config.d/catboost_config.xml`:
 
 ```xml
 <clickhouse>
@@ -104,10 +104,34 @@ SET allow_experimental_vector_similarity_index = 1;
 
 ---
 
+## Проверка установки перед запуском
+
+```bash
+# CatBoost bridge установлен?
+which clickhouse-library-bridge
+
+# Библиотека на месте?
+sudo ls -la /var/lib/clickhouse/libcatboostmodel.so
+
+# Конфиг применился?
+grep -r 'catboost_lib_path' /etc/clickhouse-server/
+
+# Быстрый тест функции (ожидать ошибку про файл, не про функцию):
+clickhouse-client --query \
+  "SELECT catboostEvaluate('/tmp/test', 1.0, 1.0, 0.0, 2.5, 1.0, 10.0)"
+# Правильный ответ: DB::Exception: Can't load model /tmp/test: file doesn't exist
+# Неправильный:    DB::Exception: Child process was exited with return code 88
+```
+
+---
+
 ## Быстрый старт
 
 ```bash
 # 1. Установить зависимости Python
+sudo apt install python3-pip
+sudo apt install python3-venv
+
 python3 -m venv venv
 source venv/bin/activate
 pip install -r requirements.txt
@@ -130,25 +154,4 @@ python scripts/04_train_export_onnx.py
 
 # 7. Блок 3: инференс
 clickhouse-client < scripts/05_inference.sql
-```
-
----
-
-## Проверка установки перед запуском
-
-```bash
-# CatBoost bridge установлен?
-which clickhouse-library-bridge
-
-# Библиотека на месте?
-sudo ls -la /var/lib/clickhouse/libcatboostmodel.so
-
-# Конфиг применился?
-grep -r 'catboost_lib_path' /etc/clickhouse-server/
-
-# Быстрый тест функции (ожидать ошибку про файл, не про функцию):
-clickhouse-client --query \
-  "SELECT catboostEvaluate('/tmp/test', 1.0, 1.0, 0.0, 2.5, 1.0, 10.0)"
-# Правильный ответ: DB::Exception: Can't load model /tmp/test: file doesn't exist
-# Неправильный:    DB::Exception: Child process was exited with return code 88
 ```

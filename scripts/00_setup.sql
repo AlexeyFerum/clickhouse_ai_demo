@@ -55,7 +55,7 @@ CREATE TABLE IF NOT EXISTS taxi_zones (
     zone_type  String,
     embedding  Array(Float32),
     INDEX ann_idx embedding
-        TYPE vector_similarity('hnsw', 'cosineDistance')
+        TYPE vector_similarity('hnsw', 'cosineDistance', 384)
         GRANULARITY 1
 )
 ENGINE = MergeTree()
